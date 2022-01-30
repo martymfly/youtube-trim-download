@@ -1,0 +1,33 @@
+version: "3.8"
+services:
+  redis:
+    image: redis:alpine
+    ports:
+      - "6379:6379"
+  app:
+    image: flaskapp
+    build: .
+    ports:
+      - "8000:8000"
+    depends_on:
+      - redis
+    environment:
+      - UPLOAD_SECRET_KEY=${UPLOAD_SECRET_KEY}
+  worker:
+    image: flaskworker
+    user: root
+    build:
+      context: ./worker
+    depends_on:
+      - redis
+    environment:
+      - UPLOAD_SECRET_KEY=${UPLOAD_SECRET_KEY}
+  celery-flower:
+    build:
+      context: ./celery-flower
+    ports:
+     - 5555:5555
+    entrypoint: flower
+    command:  --port=5555 --broker=redis://redis:6379
+    depends_on:
+      - redis
