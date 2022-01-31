@@ -117,7 +117,8 @@ def calculate_trimmed_file_size(url, quality, start, end, total_length):
                     final_size_is_below_limit = False
                 else:
                     final_size_is_below_limit = True
-    except:
+    except Exception as e:
+        print(e)
         final_size_is_below_limit = False
     return final_size_is_below_limit
 
