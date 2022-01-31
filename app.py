@@ -105,19 +105,21 @@ def has_requester_active_task(ip):
     return has_active_task
 
 def calculate_trimmed_file_size(url, quality, start, end, total_length):
-    final_size_is_above_limit = False
+    final_size_is_below_limit = False
     try:
         video_info = ydlr.extract_info(url, download=False)
         for format in video_info['formats']:
             if format['format_id'] == quality:
                 video_file_size = format['filesize']/1024/1024
                 video_size_per_sec = video_file_size/total_length
-                trimmed_video_length = (end - start) * video_size_per_sec
-                if trimmed_video_length > FILE_SIZE_LIMIT_MB:
-                    final_size_is_above_limit = True
-        return final_size_is_above_limit
+                trimmed_video_size = (end - start) * video_size_per_sec
+                if trimmed_video_size > FILE_SIZE_LIMIT_MB:
+                    final_size_is_below_limit = False
+                else:
+                    final_size_is_below_limit = True
     except:
-        return False
+        final_size_is_below_limit = False
+    return final_size_is_below_limit
 
 
 @app.route("/")
@@ -168,14 +170,15 @@ def trim():
         end = request.args.get("end")
         total_length = request.args.get("total_length")
         if url and quality and start and end is not None:
-            if calculate_trimmed_file_size(url, quality, int(start), int(end), int(total_length)):
+            is_below_limit = calculate_trimmed_file_size(url, quality, int(start), int(end), int(total_length))
+            if not is_below_limit:
                 return json_response(
                     False,
                     None,
                     f"The file size of the trimmed video is going to be above the limit of {FILE_SIZE_LIMIT_MB}MB. Please try again with a smaller range or lower quality.",
                     400,
                 )
-            else:
+            elif is_below_limit:
                 task = celery.send_task(
                     TRIM_TASK_NAME,
                     kwargs={
