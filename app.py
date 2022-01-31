@@ -112,7 +112,7 @@ def calculate_trimmed_file_size(url, quality, start, end, total_length):
             if format['format_id'] == quality:
                 video_file_size = format['filesize']/1024/1024
                 video_size_per_sec = video_file_size/total_length
-                trimmed_video_size = (end - start) * video_size_per_sec
+                trimmed_video_size = int((end - start) * video_size_per_sec)
                 if trimmed_video_size > FILE_SIZE_LIMIT_MB:
                     final_size_is_below_limit = False
                 else:
