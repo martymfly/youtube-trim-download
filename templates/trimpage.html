@@ -495,7 +495,7 @@
         'input[type="radio"][name="radio-choice-0"]:checked'
       ).val();
       let response = await fetch(
-        `trim?url=${videoUrl}&quality=${quality}&start=${selectedStart}&end=${selectedEnd}`,
+        `trim?url=${videoUrl}&quality=${quality}&start=${selectedStart}&end=${selectedEnd}&total_length=${videoLength}`,
         {
           method: "POST",
         }
@@ -530,7 +530,7 @@
         );
         $("#task-list").append(resultElem);
       }
-      else if (!result.success && result.message.includes("please wait")) {
+      else if (!result.success && result.message.includes("please wait") || result.message.includes("limit of")) {
         $("#alert-container").removeClass("hidden");
         $("#alert-message").text(result.message);
         setTimeout(() => {

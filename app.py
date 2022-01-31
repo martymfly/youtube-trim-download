@@ -25,6 +25,7 @@ TRIM_TASK_NAME = "worker.tasks.trim" if ON_HEROKU else "tasks.trim"
 REDIS_LOCAL_URL = "redis://localhost:6379"
 REDIS_URL = os.environ.get("REDIS_URL", REDIS_LOCAL_URL)
 UPLOAD_SECRET_KEY = os.environ.get("UPLOAD_SECRET_KEY")
+FILE_SIZE_LIMIT_MB = os.environ.get("FILE_SIZE_LIMIT_MB", 100)
 
 app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
 
@@ -103,6 +104,21 @@ def has_requester_active_task(ip):
                 has_active_task = True
     return has_active_task
 
+def calculate_trimmed_file_size(url, quality, start, end, total_length):
+    final_size_is_above_limit = False
+    try:
+        video_info = ydlr.extract_info(url, download=False)
+        for format in video_info['formats']:
+            if format['format_id'] == quality:
+                video_file_size = format['filesize']/1024/1024
+                video_size_per_sec = video_file_size/total_length
+                trimmed_video_length = (end - start) * video_size_per_sec
+                if trimmed_video_length > FILE_SIZE_LIMIT_MB:
+                    final_size_is_above_limit = True
+        return final_size_is_above_limit
+    except:
+        return False
+
 
 @app.route("/")
 def home():
@@ -150,22 +166,31 @@ def trim():
         quality = request.args.get("quality")
         start = request.args.get("start")
         end = request.args.get("end")
+        total_length = request.args.get("total_length")
         if url and quality and start and end is not None:
-            task = celery.send_task(
-                TRIM_TASK_NAME,
-                kwargs={
-                    "url": url,
-                    "quality": quality,
-                    "start": start,
-                    "end": end,
-                    "ip": requester_ip,
-                },
-            )
-            redis_instance.set(
-                "celery-trim-task-" + task.id,
-                json.dumps({"ip": requester_ip, "task_id": task.id}),
-            )
-            return json_response(True, task.id, "Task successfully added!", 200)
+            if calculate_trimmed_file_size(url, quality, int(start), int(end), int(total_length)):
+                return json_response(
+                    False,
+                    None,
+                    f"The file size of the trimmed video is going to be above the limit of {FILE_SIZE_LIMIT_MB}MB. Please try again with a smaller range or lower quality.",
+                    400,
+                )
+            else:
+                task = celery.send_task(
+                    TRIM_TASK_NAME,
+                    kwargs={
+                        "url": url,
+                        "quality": quality,
+                        "start": start,
+                        "end": end,
+                        "ip": requester_ip,
+                    },
+                )
+                redis_instance.set(
+                    "celery-trim-task-" + task.id,
+                    json.dumps({"ip": requester_ip, "task_id": task.id}),
+                )
+                return json_response(True, task.id, "Task successfully added!", 200)
         return json_response(
             False, None, "Please provide 'url, quality, start and end' data!", 400
         )
