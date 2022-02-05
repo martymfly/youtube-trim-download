@@ -1,5 +1,4 @@
 celery==4.4.7
-flower==1.0.0
 yt-dlp==2021.10.10
 redis==4.1.2
 requests==2.27.1

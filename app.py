@@ -26,6 +26,7 @@ REDIS_LOCAL_URL = "redis://localhost:6379"
 REDIS_URL = os.environ.get("REDIS_URL", REDIS_LOCAL_URL)
 UPLOAD_SECRET_KEY = os.environ.get("UPLOAD_SECRET_KEY")
 FILE_SIZE_LIMIT_MB = os.environ.get("FILE_SIZE_LIMIT_MB", 100)
+ALLOWED_VIDEO_SIZES = ("360", "480", "720")
 
 app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
 
@@ -61,7 +62,7 @@ def process_video_request(data):
             videos.append(x)
         res = x["format"].split("-")[1].strip().split(" ")[0]
         if (
-            any(s in x["format_note"] for s in ("360", "480", "720", "1080"))
+            any(s in x["format_note"] for s in ALLOWED_VIDEO_SIZES)
             and "throttled" not in x["format"].lower()
             and x["filesize"] is not None
         ):
