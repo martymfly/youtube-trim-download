@@ -25,7 +25,8 @@ TRIM_TASK_NAME = "worker.tasks.trim" if ON_HEROKU else "tasks.trim"
 REDIS_LOCAL_URL = "redis://localhost:6379"
 REDIS_URL = os.environ.get("REDIS_URL", REDIS_LOCAL_URL)
 UPLOAD_SECRET_KEY = os.environ.get("UPLOAD_SECRET_KEY")
-FILE_SIZE_LIMIT_MB = os.environ.get("FILE_SIZE_LIMIT_MB", 100)
+TRIMMED_FILE_SIZE_LIMIT_MB = os.environ.get("TRIMMED_FILE_SIZE_LIMIT_MB", 100)
+VIDEO_FILE_SIZE_LIMIT_MB = os.environ.get("VIDEO_FILE_SIZE_LIMIT_MB", 400)
 ALLOWED_VIDEO_SIZES = ("360", "480", "720")
 
 app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
@@ -105,16 +106,16 @@ def has_requester_active_task(ip):
                 has_active_task = True
     return has_active_task
 
-def calculate_trimmed_file_size(url, quality, start, end, total_length):
+def calculate_trimmed_file_size(video_info, quality, start, end):
     final_size_is_below_limit = False
     try:
-        video_info = ydlr.extract_info(url, download=False)
+        total_length = video_info["duration"]
         for format in video_info['formats']:
             if format['format_id'] == quality:
                 video_file_size = format['filesize']/1024/1024
                 video_size_per_sec = video_file_size/total_length
                 trimmed_video_size = int((end - start) * video_size_per_sec)
-                if trimmed_video_size > int(FILE_SIZE_LIMIT_MB):
+                if trimmed_video_size > int(TRIMMED_FILE_SIZE_LIMIT_MB):
                     final_size_is_below_limit = False
                 else:
                     final_size_is_below_limit = True
@@ -122,6 +123,21 @@ def calculate_trimmed_file_size(url, quality, start, end, total_length):
         print(e)
         final_size_is_below_limit = False
     return final_size_is_below_limit
+
+def video_size_below_limit(video_info, quality):
+    video_size_below_limit = False
+    try:
+        for format in video_info['formats']:
+            if format['format_id'] == quality:
+                video_file_size = format['filesize']/1024/1024
+                if video_file_size > int(VIDEO_FILE_SIZE_LIMIT_MB):
+                    video_size_below_limit = False
+                else:
+                    video_size_below_limit = True
+    except Exception as e:
+        print(e)
+        video_size_below_limit = False
+    return video_size_below_limit
 
 
 @app.route("/")
@@ -162,7 +178,7 @@ def trim():
         return json_response(
             False,
             None,
-            "You have an active task in the queue, please wait for it to complete or cancel it!",
+            "You have an active task in the queue, please wait for it to complete!",
             400,
         )
     else:
@@ -170,32 +186,49 @@ def trim():
         quality = request.args.get("quality")
         start = request.args.get("start")
         end = request.args.get("end")
-        total_length = request.args.get("total_length")
         if url and quality and start and end is not None:
-            is_below_limit = calculate_trimmed_file_size(url, quality, int(start), int(end), int(total_length))
-            if not is_below_limit:
+            try:
+                video_info = ydlr.extract_info(url, download=False)
+                is_video_below_limit = video_size_below_limit(video_info, quality)
+                if not is_video_below_limit:
+                    return json_response(
+                        False,
+                        None,
+                        f"The file size of the video is above the limit of {VIDEO_FILE_SIZE_LIMIT_MB}MB. Please try again with a lower quality or a shorter video.",
+                        400,
+                    )
+                is_trimmed_below_limit = calculate_trimmed_file_size(video_info, quality, int(start), int(end))
+                if not is_trimmed_below_limit:
+                    return json_response(
+                        False,
+                        None,
+                        f"The file size of the trimmed video is going to be above the limit of {TRIMMED_FILE_SIZE_LIMIT_MB}MB. Please try again with a smaller range or lower quality.",
+                        400,
+                    )
+                elif is_trimmed_below_limit:
+                    task = celery.send_task(
+                        TRIM_TASK_NAME,
+                        kwargs={
+                            "url": url,
+                            "quality": quality,
+                            "start": start,
+                            "end": end,
+                            "ip": requester_ip,
+                        },
+                    )
+                    redis_instance.set(
+                        "celery-trim-task-" + task.id,
+                        json.dumps({"ip": requester_ip, "task_id": task.id}),
+                    )
+                    return json_response(True, task.id, "Task successfully added!", 200)
+            except Exception as e:
+                print(e)
                 return json_response(
                     False,
                     None,
-                    f"The file size of the trimmed video is going to be above the limit of {FILE_SIZE_LIMIT_MB}MB. Please try again with a smaller range or lower quality.",
+                    f"Something went wrong, please try again later!",
                     400,
                 )
-            elif is_below_limit:
-                task = celery.send_task(
-                    TRIM_TASK_NAME,
-                    kwargs={
-                        "url": url,
-                        "quality": quality,
-                        "start": start,
-                        "end": end,
-                        "ip": requester_ip,
-                    },
-                )
-                redis_instance.set(
-                    "celery-trim-task-" + task.id,
-                    json.dumps({"ip": requester_ip, "task_id": task.id}),
-                )
-                return json_response(True, task.id, "Task successfully added!", 200)
         return json_response(
             False, None, "Please provide 'url, quality, start and end' data!", 400
         )

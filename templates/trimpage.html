@@ -62,7 +62,7 @@
 
     #alert-container {
       transition: height 400ms ease-in-out;
-      height: 70px;
+      height: 90px;
     }
 
     #alert-container.hidden {
@@ -495,7 +495,7 @@
         'input[type="radio"][name="radio-choice-0"]:checked'
       ).val();
       let response = await fetch(
-        `trim?url=${videoUrl}&quality=${quality}&start=${selectedStart}&end=${selectedEnd}&total_length=${videoLength}`,
+        `trim?url=${videoUrl}&quality=${quality}&start=${selectedStart}&end=${selectedEnd}`,
         {
           method: "POST",
         }
